@@ -1,0 +1,22 @@
+# Add to .dockerignore for backend
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+*.sqlite3
+car_tracking.db
+.git
+.gitignore
+README.md
+*.md
+.DS_Store
+.vscode/
+.idea/
