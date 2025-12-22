@@ -37,7 +37,9 @@ class Vehicle(Base):
     bbox_y1 = Column(Integer)
     bbox_x2 = Column(Integer)
     bbox_y2 = Column(Integer)
+    license_plate = Column(String, nullable=True, index=True)  # Detected license plate number
+    plate_confidence = Column(Float, nullable=True)  # OCR confidence
     detected_at = Column(DateTime, default=datetime.utcnow)
     
     def __repr__(self):
-        return f"<Vehicle {self.id}: {self.vehicle_type} - {self.color}>"
+        return f"<Vehicle {self.id}: {self.vehicle_type} - {self.color} - {self.license_plate}>"

@@ -10,6 +10,8 @@ from datetime import datetime
 from core.detector import VehicleDetector
 from core.speed_estimator import SpeedEstimator
 from core.color_detector import ColorDetector
+from core.license_plate_detector import LicensePlateDetector
+from core.plate_ocr import PlateOCR
 from models.database import SessionLocal, Vehicle
 
 
@@ -21,6 +23,8 @@ class VideoProcessor:
         detector: VehicleDetector,
         speed_estimator: SpeedEstimator,
         color_detector: ColorDetector,
+        plate_detector: Optional[LicensePlateDetector] = None,
+        plate_ocr: Optional[PlateOCR] = None,
         save_to_db: bool = True
     ):
         """
@@ -30,11 +34,15 @@ class VideoProcessor:
             detector: Vehicle detector instance
             speed_estimator: Speed estimator instance
             color_detector: Color detector instance
+            plate_detector: License plate detector instance (optional)
+            plate_ocr: License plate OCR instance (optional)
             save_to_db: Whether to save detections to database
         """
         self.detector = detector
         self.speed_estimator = speed_estimator
         self.color_detector = color_detector
+        self.plate_detector = plate_detector
+        self.plate_ocr = plate_ocr
         self.save_to_db = save_to_db
         
         self.total_vehicle_count = 0
@@ -94,6 +102,19 @@ class VideoProcessor:
             # Get vehicle size
             size = self.detector.get_vehicle_size(detection)
             
+            # Detect license plate
+            license_plate = None
+            plate_confidence = None
+            if self.plate_detector is not None and self.plate_ocr is not None:
+                plate_detections = self.plate_detector.detect(frame, detection['bbox'])
+                if plate_detections:
+                    # Get the first (most confident) plate
+                    plate = plate_detections[0]
+                    plate_img = self.plate_detector.extract_plate_image(frame, plate['bbox'])
+                    if plate_img is not None:
+                        # Try Indian format first, then UK, then auto
+                        license_plate, plate_confidence = self.plate_ocr.read_with_confidence(plate_img, format_type='auto')
+            
             # Enrich detection data
             enriched_detection = {
                 **detection,
@@ -103,6 +124,8 @@ class VideoProcessor:
                 'direction': direction,
                 'in_roi': in_roi,
                 'size': size,
+                'license_plate': license_plate,
+                'plate_confidence': plate_confidence,
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -180,6 +203,9 @@ class VideoProcessor:
                 f"Color: {detection['color']}",
             ]
             
+            if detection.get('license_plate'):
+                info_lines.append(f"Plate: {detection['license_plate']}")
+            
             if detection['speed'] is not None:
                 info_lines.append(f"Speed: {detection['speed']} km/h")
             
@@ -242,7 +268,9 @@ class VideoProcessor:
                 bbox_x1=detection['bbox'][0],
                 bbox_y1=detection['bbox'][1],
                 bbox_x2=detection['bbox'][2],
-                bbox_y2=detection['bbox'][3]
+                bbox_y2=detection['bbox'][3],
+                license_plate=detection.get('license_plate'),
+                plate_confidence=detection.get('plate_confidence')
             )
             db.add(vehicle)
             db.commit()

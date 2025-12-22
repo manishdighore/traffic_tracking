@@ -14,6 +14,8 @@ class VehicleBase(BaseModel):
     direction: Optional[str] = None
     size: Optional[str] = None
     confidence: float
+    license_plate: Optional[str] = None
+    plate_confidence: Optional[float] = None
 
 
 class VehicleCreate(VehicleBase):
@@ -49,6 +51,8 @@ class VehicleDetection(BaseModel):
     speed: Optional[float] = None
     direction: Optional[str] = None
     vehicle_id: Optional[int] = None
+    license_plate: Optional[str] = None
+    plate_confidence: Optional[float] = None
 
 
 class StatsResponse(BaseModel):

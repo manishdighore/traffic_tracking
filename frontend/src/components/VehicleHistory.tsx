@@ -14,6 +14,8 @@ interface Vehicle {
   direction: string | null
   size: string | null
   confidence: number
+  license_plate: string | null
+  plate_confidence: number | null
   detected_at: string
 }
 
@@ -118,6 +120,23 @@ export function VehicleHistory() {
                   {vehicle.color}
                 </span>
               </div>
+
+              {vehicle.license_plate && (
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="w-4 h-4 flex items-center justify-center">
+                    <div className="w-3 h-2 border border-yellow-400 rounded-sm bg-yellow-400/10" />
+                  </div>
+                  <span className="text-gray-400">Plate:</span>
+                  <span className="text-yellow-400 font-mono font-bold tracking-wider">
+                    {vehicle.license_plate}
+                  </span>
+                  {vehicle.plate_confidence && (
+                    <span className="text-xs text-gray-500">
+                      ({(vehicle.plate_confidence * 100).toFixed(0)}%)
+                    </span>
+                  )}
+                </div>
+              )}
 
               {vehicle.speed !== null && (
                 <div className="flex items-center gap-2 text-sm">

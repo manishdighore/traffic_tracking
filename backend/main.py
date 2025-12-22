@@ -19,6 +19,8 @@ from models.schemas import VehicleDetection, VehicleCreate, VehicleResponse
 from core.detector import VehicleDetector
 from core.speed_estimator import SpeedEstimator
 from core.color_detector import ColorDetector
+from core.license_plate_detector_v8 import LicensePlateDetector
+from core.plate_ocr_v8 import PlateOCR
 from core.video_processor import VideoProcessor
 
 # Create database tables
@@ -28,6 +30,8 @@ Base.metadata.create_all(bind=engine)
 vehicle_detector = None
 speed_estimator = None
 color_detector = None
+plate_detector = None
+plate_ocr = None
 video_processor = None
 active_connections: List[WebSocket] = []
 
@@ -36,16 +40,31 @@ active_connections: List[WebSocket] = []
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown"""
     # Startup
-    global vehicle_detector, speed_estimator, color_detector, video_processor
+    global vehicle_detector, speed_estimator, color_detector, plate_detector, plate_ocr, video_processor
     
     print("🚀 Initializing models...")
     vehicle_detector = VehicleDetector()
     speed_estimator = SpeedEstimator()
     color_detector = ColorDetector()
+    
+    # Initialize ALPR components (optional, will work without weights)
+    print("🔍 Initializing License Plate Detection...")
+    try:
+        plate_detector = LicensePlateDetector()
+        plate_ocr = PlateOCR(use_gpu=False)  # Use EasyOCR with CPU
+        print("✅ ALPR components initialized!")
+    except Exception as e:
+        print(f"⚠️  ALPR initialization warning: {e}")
+        print("   License plate detection will be disabled.")
+        plate_detector = None
+        plate_ocr = None
+    
     video_processor = VideoProcessor(
         detector=vehicle_detector,
         speed_estimator=speed_estimator,
-        color_detector=color_detector
+        color_detector=color_detector,
+        plate_detector=plate_detector,
+        plate_ocr=plate_ocr
     )
     print("✅ Models initialized successfully!")
     
@@ -65,10 +84,11 @@ app = FastAPI(
 # CORS middleware for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js default port
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Next.js ports
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -227,6 +247,10 @@ async def websocket_endpoint(websocket: WebSocket):
 async def upload_video(file: UploadFile = File(...)):
     """Upload video file for processing"""
     try:
+        # Create uploads directory if it doesn't exist
+        import os
+        os.makedirs("uploads", exist_ok=True)
+        
         # Save uploaded file
         file_path = f"uploads/{file.filename}"
         with open(file_path, "wb") as buffer:
