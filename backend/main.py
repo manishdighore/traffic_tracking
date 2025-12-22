@@ -169,76 +169,131 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
     
+    cap = None
+    is_paused = False
+    frame_skip = 0
+    
     try:
+        # Receive initial configuration from client
+        data = await websocket.receive_text()
+        config = json.loads(data)
+        
+        video_source = config.get("source", 0)  # 0 for webcam, or video path
+        roi_position = config.get("roi_y", None)  # ROI line Y position
+        
+        # Set ROI position if provided
+        if roi_position is not None:
+            video_processor.set_roi_position(int(roi_position))
+            print(f"ROI position set to: {roi_position}")
+        
+        # Convert to integer if it's a string number (for webcam)
+        if isinstance(video_source, str) and video_source.isdigit():
+            video_source = int(video_source)
+        
+        print(f"Opening video source: {video_source}")
+        
+        # Start video processing
+        cap = cv2.VideoCapture(video_source)
+        
+        if not cap.isOpened():
+            error_msg = f"Could not open video source: {video_source}"
+            print(error_msg)
+            await websocket.send_json({
+                "type": "error",
+                "message": error_msg
+            })
+            return
+        
+        print(f"Video source opened successfully. Resolution: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+        
+        frame_count = 0
+        
+        # Main processing loop
         while True:
-            # Receive configuration from client
-            data = await websocket.receive_text()
-            config = json.loads(data)
+            # Check for commands from client (non-blocking)
+            try:
+                command_data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=0.001
+                )
+                command = json.loads(command_data)
+                
+                if command.get("action") == "pause":
+                    is_paused = not is_paused
+                    print(f"Playback {'paused' if is_paused else 'resumed'}")
+                    continue
+                    
+                elif command.get("action") == "skip":
+                    frame_skip = command.get("frames", 0)
+                    print(f"Skipping {frame_skip} frames")
+                    
+            except asyncio.TimeoutError:
+                pass  # No command received, continue processing
+            except json.JSONDecodeError:
+                pass  # Invalid command, ignore
             
-            video_source = config.get("source", 0)  # 0 for webcam, or video path
-            roi_position = config.get("roi_y", None)  # ROI line Y position
+            # Handle pause
+            if is_paused:
+                await asyncio.sleep(0.1)
+                continue
             
-            # Set ROI position if provided
-            if roi_position is not None:
-                video_processor.set_roi_position(int(roi_position))
-                print(f"ROI position set to: {roi_position}")
+            # Handle frame skipping
+            if frame_skip != 0:
+                if frame_skip > 0:
+                    # Skip forward
+                    for _ in range(frame_skip):
+                        ret = cap.grab()
+                        if not ret:
+                            break
+                        frame_count += 1
+                else:
+                    # Skip backward (seek to earlier position)
+                    current_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
+                    new_pos = max(0, current_pos + frame_skip)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, new_pos)
+                    frame_count = int(new_pos)
+                
+                frame_skip = 0
             
-            # Convert to integer if it's a string number (for webcam)
-            if isinstance(video_source, str) and video_source.isdigit():
-                video_source = int(video_source)
-            
-            print(f"Opening video source: {video_source}")
-            
-            # Start video processing
-            cap = cv2.VideoCapture(video_source)
-            
-            if not cap.isOpened():
-                error_msg = f"Could not open video source: {video_source}"
-                print(error_msg)
+            # Read and process frame
+            ret, frame = cap.read()
+            if not ret:
+                # End of video
                 await websocket.send_json({
-                    "type": "error",
-                    "message": error_msg
+                    "type": "end",
+                    "message": "Video ended"
                 })
                 break
             
-            print(f"Video source opened successfully. Resolution: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+            frame_count += 1
             
-            frame_count = 0
+            # Process frame
+            result = video_processor.process_frame(frame, frame_count)
             
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                frame_count += 1
-                
-                # Process frame
-                result = video_processor.process_frame(frame, frame_count)
-                
-                # Encode frame as base64
-                _, buffer = cv2.imencode('.jpg', result['frame'])
-                frame_base64 = base64.b64encode(buffer).decode('utf-8')
-                
-                # Send detection data
-                await websocket.send_json({
-                    "type": "frame",
-                    "frame": frame_base64,
-                    "detections": result['detections'],
-                    "count": result['total_count'],
-                    "frame_number": frame_count,
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-                # Control frame rate
-                await asyncio.sleep(0.033)  # ~30 FPS
+            # Encode frame as base64
+            _, buffer = cv2.imencode('.jpg', result['frame'])
+            frame_base64 = base64.b64encode(buffer).decode('utf-8')
             
-            cap.release()
+            # Send detection data
+            await websocket.send_json({
+                "type": "frame",
+                "frame": frame_base64,
+                "detections": result['detections'],
+                "count": result['total_count'],
+                "frame_number": frame_count,
+                "timestamp": datetime.now().isoformat()
+            })
             
+            # Control frame rate
+            await asyncio.sleep(0.033)  # ~30 FPS
+        
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
         print("Client disconnected")
     except Exception as e:
         print(f"Error in WebSocket: {str(e)}")
+    finally:
+        if cap is not None:
+            cap.release()
         if websocket in active_connections:
             active_connections.remove(websocket)
 

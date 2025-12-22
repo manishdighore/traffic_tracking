@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Camera, CameraOff, Loader2, AlertCircle, Car, Upload, Video } from 'lucide-react'
+import { Camera, CameraOff, Loader2, AlertCircle, Car, Upload, Video, Play, Pause, SkipForward, SkipBack } from 'lucide-react'
 import axios from 'axios'
 
 const WS_URL = 'ws://localhost:8000/ws/video'
@@ -39,6 +39,7 @@ export function VideoFeed() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [roiPosition, setRoiPosition] = useState(400)  // ROI line Y position
+  const [isPaused, setIsPaused] = useState(false)
   
   const wsRef = useRef<WebSocket | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -133,6 +134,20 @@ export function VideoFeed() {
       wsRef.current = null
       setIsConnected(false)
       setDetections([])
+      setIsPaused(false)
+    }
+  }, [])
+
+  const togglePause = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'pause' }))
+      setIsPaused(!isPaused)
+    }
+  }, [isPaused])
+
+  const skipFrames = useCallback((frames: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'skip', frames }))
     }
   }, [])
 
@@ -378,10 +393,38 @@ export function VideoFeed() {
 
         {/* Stop Button */}
         {isConnected && (
-          <div className="mb-4">
+          <div className="mb-4 flex gap-2">
+            {/* Play/Pause Button */}
+            <button
+              onClick={togglePause}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all bg-blue-600 hover:bg-blue-700 text-white flex-1 justify-center"
+            >
+              {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              {isPaused ? 'Resume' : 'Pause'}
+            </button>
+
+            {/* Skip Backward */}
+            <button
+              onClick={() => skipFrames(-30)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all bg-gray-700 hover:bg-gray-600 text-white"
+              title="Skip back 30 frames"
+            >
+              <SkipBack className="w-4 h-4" />
+            </button>
+
+            {/* Skip Forward */}
+            <button
+              onClick={() => skipFrames(30)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all bg-gray-700 hover:bg-gray-600 text-white"
+              title="Skip forward 30 frames"
+            >
+              <SkipForward className="w-4 h-4" />
+            </button>
+
+            {/* Stop Button */}
             <button
               onClick={disconnectWebSocket}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all bg-red-600 hover:bg-red-700 text-white w-full justify-center"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all bg-red-600 hover:bg-red-700 text-white"
             >
               <CameraOff className="w-4 h-4" />
               Stop
